@@ -13,14 +13,7 @@ window.Ayudas = {
   },
   async pedir(url, opciones) { // Comprueba errores HTTP antes de usar los datos.
     const r = await fetch(url, opciones);
-    if (!r.ok) {
-      let detalle = '';
-      try {
-        const cuerpo = await r.json();
-        detalle = cuerpo.detalle || cuerpo.error || '';
-      } catch (_) { /* La respuesta puede no ser JSON. */ }
-      throw new Error('Error HTTP ' + r.status + (detalle ? ': ' + detalle : ''));
-    }
+    if (!r.ok) throw new Error('Error HTTP ' + r.status);
     return r.json();
   },
   escribir(url, metodo, datos) { // Envios JSON.
