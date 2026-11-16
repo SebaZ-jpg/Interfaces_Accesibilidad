@@ -1,0 +1,14 @@
+Verificacion realizada sobre el proyecto original completo.
+
+- npm test: 66 pruebas aprobadas, 0 fallos.
+- npm run empaquetar: correcto.
+- public/dist/erp-componentes.js: generado y contiene erp-tarjeta y erp-insignia.
+- Comprobacion adicional aislada de erp-insignia: estado por defecto, lectura/escritura, estado invalido, evento cambio, ciclo de estados y reconexion sin listeners duplicados: correcto.
+
+Pendiente de comprobacion manual en navegador:
+- Reconocimiento real de voz y permisos de microfono.
+- Camara y deteccion real de movimiento/mano con MediaPipe.
+- Peticiones a la API durante la ejecucion del servidor.
+- Pruebas de interfaz en Chrome o Edge.
+
+Autor/a: [ESCRIBE TU NOMBRE]

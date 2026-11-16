@@ -1,0 +1,119 @@
+<!-- Autor/a: Sebastian Alonso Acero Guiop -->
+<!DOCTYPE html>
+<!-- Declara que esto es una pagina HTML5 -->
+<html lang="es">
+<!-- Inicio del documento, idioma espanol -->
+<head>
+  <!-- HEAD: informacion que NO se ve en la pagina -->
+  <meta charset="UTF-8">
+  <!-- Permite tildes y enyes -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <!-- Hace que la pagina se adapte al movil (responsive) -->
+  <title>E3 Pasar productos con movimiento</title>
+  <!-- Titulo de la pestana del navegador -->
+  <link rel="stylesheet" href="/css/estilos.css">
+  <!-- Carga los estilos (colores, tamanos) desde el fichero CSS -->
+<script src="/js/errores.js"></script></head>
+<body>
+  <!-- BODY: todo lo que SI se ve en la pagina -->
+  <div class="nav"><a href="/index.html">&#127968; Inicio</a><a href="/evaluables/e2-voz-productos.html">&larr; E2</a><a href="/evaluables/e4-mano-pedidos.html">E4 &rarr;</a></div>
+  <!-- Barra de navegacion: volver al inicio, ejercicio anterior y siguiente -->
+  <h1>E3 Pasar productos con movimiento</h1>
+  <!-- Titulo grande de la pagina -->
+  <div class="caja"><b>Criterios:</b> RA2 d. Completa los TODO siguiendo el enunciado completo.</div>
+  <!-- Caja informativa con los criterios de evaluacion que trabaja el ejercicio -->
+<section class="caja enunciado"><h2>Que debes hacer, paso a paso</h2><p>Archivo: <code>public/evaluables/e3-movimiento-productos.html</code>. Solo modifica frontend. Lee el resuelto relacionado antes de empezar.</p><ol><li>Consulta R3. Aqui no se reconocen poses: se detectan diferencias de imagen. Los cambios de luz tambien pueden activar la accion.</li><li>Carga /api/products e importa /componentes/erp-tarjeta.js. En mostrar() asigna titulo=nombre y valor=stock del producto actual.</li><li>Compara los arrays RGBA de dos fotogramas con un for que avance de 4 en 4. Suma R+G+B para calcular el brillo.</li><li>Cuenta los cambios mayores de 90 en izquierda o derecha: columna=(i/4)%160, izquierda si columna&lt;80.</li><li>Si algun contador supera 600 y ha terminado el bloqueo, derecha avanza e izquierda retrocede. Usa modulo para volver al inicio o al final.</li><li>Actualiza la tarjeta y bloquea nuevos cambios durante 1000 ms. Guarda foto.slice() para comparar en la siguiente vuelta.</li><li>Prueba ambos lados con buena luz y fondo quieto. Ajusta 600 si la camara es demasiado sensible.</li></ol><h3>Entrega</h3><p>Entrega tu HTML, los componentes modificados y una captura de la prueba. Explica los errores que controlas y comenta cada paso. No incluyas soluciones del profesor ni node_modules.</p><h3>Comprobacion final</h3><p>La consola no debe mostrar errores inesperados. Prueba tambien una entrada vacia, un permiso denegado o una lista sin resultados. Los TODO son intencionados: el evaluable no esta terminado hasta que los completes.</p></section><div class="caja"><button id="hablar">Hablar (una frase)</button><button id="iniciar">Activar camara</button><p id="msg" role="status" aria-live="polite"></p><div class="zona"><canvas id="lienzo" width="160" height="120"></canvas></div><erp-tarjeta id="tarjeta"></erp-tarjeta></div>
+  <!-- Aqui acaba el HTML visible; ahora viene el codigo JavaScript (el "cerebro") -->
+<script src="/js/logica.js"></script><script src="/js/ayudas.js"></script>
+  <script type="module">
+// Autor/a: Sebastian Alonso Acero Guiop.
+// Carga el componente que dibuja el nombre y el stock del producto.
+await import('/componentes/erp-tarjeta.js');
+// Atajo para buscar elementos de la pagina.
+const $ = id => document.getElementById(id);
+// Descarga los productos desde la API y conserva la lista completa.
+let productos = [];
+try { productos = await Ayudas.pedir('/api/products'); }
+catch (error) { $('msg').textContent = 'No se pudieron cargar productos: ' + error.message; }
+// Indice del producto que se muestra en la tarjeta.
+let actual = 0;
+// Fotografia anterior para comparar los cambios entre fotogramas.
+let anterior = null;
+// Tiempo hasta el que ignoramos movimientos para evitar saltos repetidos.
+let bloqueo = 0;
+// Canvas donde dibujamos la imagen de la camara a 160 por 120 pixeles.
+const lienzo = $('lienzo');
+// Contexto 2D para dibujar y leer los pixeles del canvas.
+const ctx = lienzo.getContext('2d', { willReadFrequently: true });
+// Elemento video que recibira el flujo de la camara.
+const video = document.createElement('video');
+video.playsInline = true;
+video.muted = true;
+
+// Muestra en erp-tarjeta el producto seleccionado.
+function mostrar() {
+  if (!productos.length) { $('msg').textContent = 'No hay productos disponibles.'; return; }
+  const p = productos[actual];
+  $('tarjeta').titulo = p.name;
+  $('tarjeta').valor = p.stock;
+}
+
+// Dibuja el primer producto al cargar la pagina.
+mostrar();
+
+// Solicita permiso de camara cuando el usuario pulsa el boton.
+$('iniciar').addEventListener('click', async () => {
+  try {
+    const flujo = await navigator.mediaDevices.getUserMedia({ video: { aspectRatio: 4 / 3 }, audio: false });
+    video.srcObject = flujo;
+    await video.play();
+    $('iniciar').disabled = true;
+    $('msg').textContent = 'Mueve el brazo a izquierda o derecha.';
+    window.addEventListener('pagehide', () => flujo.getTracks().forEach(pista => pista.stop()), { once: true });
+    bucle();
+  } catch (error) {
+    $('msg').textContent = 'No se pudo activar la camara: ' + error.message;
+  }
+});
+
+// Analiza un fotograma y solicita el siguiente mientras la pagina este abierta.
+function bucle() {
+  if (video.readyState >= 2 && video.currentTime !== window.ultimoFotogramaE3) {
+    window.ultimoFotogramaE3 = video.currentTime;
+    // Guarda el estado del canvas antes de aplicar el efecto espejo.
+    ctx.save();
+    ctx.translate(160, 0);
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, 0, 0, 160, 120);
+    ctx.restore();
+    // Lee los cuatro canales RGBA de cada pixel.
+    const foto = ctx.getImageData(0, 0, 160, 120).data;
+    if (anterior) {
+      let izq = 0;
+      let der = 0;
+      // Recorre los pixeles avanzando cuatro posiciones (R, G, B y A).
+      for (let i = 0; i < foto.length; i += 4) {
+        const brillo = foto[i] + foto[i + 1] + foto[i + 2];
+        const brilloAntes = anterior[i] + anterior[i + 1] + anterior[i + 2];
+        if (Math.abs(brillo - brilloAntes) > 90) {
+          const columna = (i / 4) % 160;
+          if (columna < 80) izq++;
+          else der++;
+        }
+      }
+      // Solo acepta un gesto cuando termina el bloqueo y hay suficientes pixeles cambiados.
+      if (performance.now() > bloqueo && (izq > 600 || der > 600)) {
+        if (der > izq) actual = (actual + 1) % productos.length;
+        else actual = (actual + productos.length - 1) % productos.length;
+        mostrar();
+        bloqueo = performance.now() + 1000;
+      }
+    }
+    // Copia el array para que la siguiente comparacion use una foto independiente.
+    anterior = foto.slice();
+  }
+  requestAnimationFrame(bucle);
+}
+  </script>
+</body>
+</html>
