@@ -44,7 +44,7 @@
       "id": 1,
       "customer": "Acme Iberia S.L.",
       "total": 1498,
-      "status": "paid"
+      "status": "cancelled"
     },
     {
       "id": 2,
