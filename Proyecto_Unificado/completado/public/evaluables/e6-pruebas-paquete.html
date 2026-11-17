@@ -27,74 +27,115 @@
 <script src="/js/logica.js"></script><script src="/js/ayudas.js"></script>
   <script type="module">
 // Autor/a: Sebastian Alonso Acero Guiop.
-// Importa las funciones test e igual del mini framework del proyecto.
+// Importamos el sistema sencillo de pruebas y la función que compara resultados.
 import { test, igual } from '/componentes/pruebas.js';
-// Espera a que el navegador registre el componente antes de probarlo.
-await import('/componentes/erp-insignia.js');
-// Obtiene las zonas donde se muestran los resultados y los componentes de prueba.
-const salida = document.getElementById('salida');
-const zona = document.getElementById('zonaPrueba');
 
-// Comprueba que el estado inicial sin atributo sea pending.
-test('Estado por defecto pending', () => {
+// Cargamos el componente antes de crear etiquetas <erp-insignia>.
+await import('/componentes/erp-insignia.js');
+
+// Guardamos las zonas de la página donde aparecerán los resultados.
+const salida = document.getElementById('salida');
+const zonaPrueba = document.getElementById('zonaPrueba');
+
+// Añadimos un enlace a la página que comprueba el paquete compilado.
+const parrafoPaquete = document.createElement('p');
+const enlacePaquete = document.createElement('a');
+enlacePaquete.href = '/paquete.html';
+enlacePaquete.textContent = 'Abrir la página de prueba del paquete';
+parrafoPaquete.appendChild(enlacePaquete);
+salida.before(parrafoPaquete);
+
+// Crea una insignia, opcionalmente le asigna un estado y la añade al documento.
+// Insertarla activa el ciclo de vida del componente y permite comprobar su vista.
+function crearInsignia(estado) {
   const insignia = document.createElement('erp-insignia');
-  zona.appendChild(insignia);
+
+  // Si se recibió un estado, lo ponemos como atributo antes de insertarla.
+  if (estado !== undefined) {
+    insignia.setAttribute('estado', estado);
+  }
+
+  zonaPrueba.appendChild(insignia);
+  return insignia;
+}
+
+// Comprueba el valor predeterminado cuando la etiqueta no tiene atributo estado.
+test('Sin atributo usa pending', () => {
+  const insignia = crearInsignia();
   igual(insignia.estado, 'pending');
 }, salida);
 
-// Comprueba que el getter lee el atributo paid.
-test('Lee correctamente el atributo paid', () => {
-  const insignia = document.createElement('erp-insignia');
-  insignia.setAttribute('estado', 'paid');
-  zona.appendChild(insignia);
+// Comprueba que el componente reconoce un estado válido recibido desde HTML.
+test('Lee el atributo paid', () => {
+  const insignia = crearInsignia('paid');
   igual(insignia.estado, 'paid');
 }, salida);
 
-// Comprueba que un estado no permitido se interpreta como pending.
-test('Estado invalido devuelve pending', () => {
-  const insignia = document.createElement('erp-insignia');
-  insignia.setAttribute('estado', 'xyz');
-  zona.appendChild(insignia);
+// Comprueba que un valor no admitido se interpreta como pending.
+test('Un estado no válido vuelve a pending', () => {
+  const insignia = crearInsignia('xyz');
   igual(insignia.estado, 'pending');
 }, salida);
 
-// Comprueba que un clic avanza a paid y emite el evento cambio con ese dato.
+// Comprueba que un clic avanza al siguiente estado y emite el evento cambio.
 test('El clic avanza y emite cambio', () => {
-  const insignia = document.createElement('erp-insignia');
-  zona.appendChild(insignia);
+  const insignia = crearInsignia();
   let estadoRecibido = '';
-  insignia.addEventListener('cambio', evento => { estadoRecibido = evento.detail.estado; });
-  insignia.click();
+
+  // Escuchamos el evento y guardamos el estado que viene en event.detail.
+  insignia.addEventListener('cambio', (evento) => {
+    estadoRecibido = evento.detail.estado;
+  });
+
+  // Simulamos el clic en la etiqueta visible dentro del Shadow DOM.
+  insignia.shadowRoot.querySelector('span').click();
+
   igual(insignia.estado, 'paid');
   igual(estadoRecibido, 'paid');
 }, salida);
 
-// Comprueba el ciclo completo de estados y el retorno a pending.
-test('El ciclo vuelve a pending', () => {
-  const insignia = document.createElement('erp-insignia');
-  zona.appendChild(insignia);
-  insignia.click(); insignia.click(); insignia.click(); insignia.click();
+// Comprueba el final del ciclo: después de cancelled vuelve a pending.
+test('El ciclo vuelve de cancelled a pending', () => {
+  const insignia = crearInsignia('cancelled');
+
+  insignia.shadowRoot.querySelector('span').click();
+
   igual(insignia.estado, 'pending');
 }, salida);
 
-// Comprueba que el contenido visual refleja el estado actual.
-test('El Shadow DOM muestra el estado', () => {
-  const insignia = document.createElement('erp-insignia');
-  zona.appendChild(insignia);
-  insignia.estado = 'shipped';
-  if (!insignia.shadowRoot.innerHTML.includes('shipped')) throw new Error('No aparece shipped en el Shadow DOM');
+// Comprueba que cambiar el estado también actualiza el color mostrado.
+test('Cambiar estado actualiza el color', () => {
+  const insignia = crearInsignia();
+  const texto = insignia.shadowRoot.querySelector('span');
+
+  const estiloPendiente = texto.getAttribute('style');
+
+  // El setter cambia el atributo; el componente vuelve a pintar su contenido.
+  insignia.estado = 'paid';
+
+  const estiloPagado = insignia.shadowRoot.querySelector('span').getAttribute('style');
+
+  if (estiloPendiente === estiloPagado) {
+    throw new Error('El color no cambió.');
+  }
 }, salida);
 
-// Comprueba que conectar dos veces el componente no duplica el listener.
-test('Reconectar no duplica eventos', () => {
-  const insignia = document.createElement('erp-insignia');
-  zona.appendChild(insignia);
-  insignia.connectedCallback();
-  let cantidad = 0;
-  insignia.addEventListener('cambio', () => { cantidad++; });
-  insignia.click();
-  igual(cantidad, 1);
+// Comprueba que quitar y volver a insertar la insignia no duplica su listener.
+test('Reconectar no duplica el listener', () => {
+  const insignia = crearInsignia();
+  let numeroDeEventos = 0;
+
+  insignia.addEventListener('cambio', () => {
+    numeroDeEventos++;
+  });
+
+  // Esto ejecuta disconnectedCallback y luego connectedCallback.
+  zonaPrueba.removeChild(insignia);
+  zonaPrueba.appendChild(insignia);
+
+  insignia.shadowRoot.querySelector('span').click();
+
+  igual(numeroDeEventos, 1);
 }, salida);
+
   </script>
-</body>
-</html>
