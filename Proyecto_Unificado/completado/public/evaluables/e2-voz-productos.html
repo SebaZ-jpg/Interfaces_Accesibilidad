@@ -28,49 +28,81 @@
   <script type="module">
 // Autor/a: Sebastian Alonso Acero Guiop.
 // Atajo para buscar elementos HTML por id.
+// $('tabla') equivale a document.getElementById('tabla').
 const $ = id => document.getElementById(id);
 // Lista original: no se modifica cuando aplicamos filtros.
+// Es "let" porque se rellena más abajo con lo que responde el servidor.
+// Los filtros crean listas nuevas a partir de ella, así siempre podemos volver a "todos".
 let productos = [];
 
 // Pinta una tabla con el array que recibe como argumento.
+// Recibe la lista como parámetro para poder pintar tanto la completa como una filtrada.
 function pintar(lista) {
   // Crea los titulos de las tres columnas solicitadas.
+  // tr = fila, th = celda de título. Es un texto HTML fijo.
   const cabecera = '<tr><th>Nombre</th><th>Precio</th><th>Stock</th></tr>';
   // Convierte cada producto en una fila y escapa los textos recibidos del servidor.
+  // map transforma cada producto (p) en un texto "<tr>...</tr>" y devuelve un array de textos.
+  // Las comillas invertidas (`) permiten meter valores dentro del texto con ${...}.
+  // Ayudas.escapar cambia caracteres como < o > por versiones inofensivas: así,
+  // si un nombre llevara código malicioso, se vería como texto y no se ejecutaría (evita XSS).
+  // join('') une todas las filas en un único texto, sin separador.
   const filas = lista.map(p => `<tr><td>${Ayudas.escapar(p.name)}</td><td>${Ayudas.escapar(p.price)}</td><td>${Ayudas.escapar(p.stock)}</td></tr>`).join('');
   // Inserta la cabecera y las filas; si no hay resultados, muestra un aviso.
+  // innerHTML mete ese texto HTML dentro de la tabla.
+  // "filas || '...'": un texto vacío cuenta como falso, así que si no hay filas se usa el aviso.
+  // colspan="3" hace que esa celda ocupe el ancho de las tres columnas.
   $('tabla').innerHTML = cabecera + (filas || '<tr><td colspan="3">Sin coincidencias</td></tr>');
 }
 
 // Descarga los productos al abrir la pagina y muestra la lista completa.
+// Se ejecuta nada más cargar la página, sin que el usuario pulse nada.
+// El await de este nivel solo funciona si el script es de tipo module.
 try {
+  // Pide los datos a la API y espera la respuesta antes de seguir (await).
+  // Los guarda en "productos", que es nuestra lista original.
   productos = await Ayudas.pedir('/api/products');
+  // Dibuja la tabla con todos los productos.
   pintar(productos);
 } catch (error) {
+  // Si falla la descarga (servidor caído, error de red...), avisamos en pantalla en lugar de dejar la página rota.
   $('msg').textContent = 'No se pudieron cargar los productos: ' + error.message;
 }
 
 // Configura el reconocimiento de voz: una pulsacion equivale a una frase.
+// Ayudas.voz es una función del proyecto: recibe el botón, una función que se ejecuta
+// con la frase entendida y el elemento donde mostrar mensajes.
 Ayudas.voz($('hablar'), fraseRecibida => {
   // Normaliza la frase para que no importen las mayusculas.
+  // toLowerCase pasa a minúsculas y trim quita espacios sobrantes.
+  // Así "Stock Bajo" y "stock bajo" se tratan igual.
   const frase = fraseRecibida.toLowerCase().trim();
   // Muestra el comando reconocido.
+  // Sirve para que el usuario vea qué ha entendido el navegador y detecte errores.
   $('msg').textContent = 'Has dicho: ' + frase;
   // Filtra los productos cuyo stock sea menor que cinco.
+  // includes comprueba si "stock bajo" aparece en cualquier parte de la frase.
+  // filter devuelve una lista nueva solo con los productos que cumplen p.stock < 5.
+  // La lista original no se toca.
   if (frase.includes('stock bajo')) pintar(productos.filter(p => p.stock < 5));
   // Recupera todos los productos originales.
+  // Pinta otra vez la lista completa, que seguía intacta.
   else if (frase.includes('todos')) pintar(productos);
   // Detecta una busqueda que comienza por la palabra buscar.
+  // startsWith exige que la frase empiece por "buscar " (con el espacio final).
   else if (frase.startsWith('buscar ')) {
     // Extrae el termino de busqueda despues de los siete caracteres.
+    // "buscar " tiene 6 letras más 1 espacio. slice(7) se queda con lo que viene después.
+    // Ejemplo: "buscar teclado" -> "teclado".
     const palabra = frase.slice(7).trim();
     // Busca el termino dentro del nombre sin distinguir mayusculas.
+    // Se pasa el nombre a minúsculas porque "palabra" ya está en minúsculas.
+    // includes comprueba si el nombre contiene la palabra (busca coincidencias parciales).
     pintar(productos.filter(p => p.name.toLowerCase().includes(palabra)));
   } else {
     // Informa cuando la frase no es uno de los comandos admitidos.
+    // Es el último caso: si no coincide con nada de lo anterior, orientamos al usuario.
     $('msg').textContent = 'Orden no reconocida. Di stock bajo, todos o buscar seguido de un producto.';
   }
 }, $('msg'));
-  </script>
-</body>
-</html>
+

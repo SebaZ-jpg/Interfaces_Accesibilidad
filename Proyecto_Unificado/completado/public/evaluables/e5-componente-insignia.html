@@ -28,16 +28,25 @@
   <script type="module">
 // Autor/a: Sebastian Alonso Acero Guiop.
 // Importa el modulo para que el navegador registre la etiqueta erp-insignia.
+// import() dinámico carga el archivo JS. Al ejecutarse, ese archivo le enseña al navegador
+// qué es <erp-insignia> (un componente web propio, es decir, una etiqueta HTML inventada por el proyecto).
+// await espera a que termine de cargar. Al estar fuera de una función, necesita <script type="module">.
 await import('/componentes/erp-insignia.js');
 // Escucha el evento personalizado de cualquier insignia de la pagina.
+// "cambio" no es un evento estándar del navegador (como click): lo inventa el componente
+// y lo lanza cuando cambia su estado. Se escucha en document (toda la página), así que
+// sirve para cualquier insignia, sea cual sea y cuántas haya.
 document.addEventListener('cambio', evento => {
   // Crea un elemento de lista para el registro.
+  // Crea un <li> en memoria. Todavía no se ve porque no está en la página.
   const linea = document.createElement('li');
   // Escribe el estado nuevo recibido dentro de event.detail.
+  // detail es la "mochila" de datos que el componente adjunta al evento personalizado.
+  // textContent inserta el texto tal cual, sin interpretarlo como HTML (más seguro que innerHTML).
   linea.textContent = 'Nuevo estado: ' + evento.detail.estado;
   // Añade la linea al final del registro.
+  // Busca el elemento con id "log" (la lista del registro) y le añade el <li> como último hijo.
+  // Es en este momento cuando aparece en pantalla.
   document.getElementById('log').appendChild(linea);
 });
-  </script>
-</body>
-</html>
+

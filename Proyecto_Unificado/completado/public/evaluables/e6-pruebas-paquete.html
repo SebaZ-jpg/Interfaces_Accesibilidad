@@ -26,78 +26,114 @@
   <!-- Aqui acaba el HTML visible; ahora viene el codigo JavaScript (el "cerebro") -->
 <script src="/js/logica.js"></script><script src="/js/ayudas.js"></script>
   <script type="module">
+
+
 // Autor/a: Sebastian Alonso Acero Guiop.
 // Importamos el sistema sencillo de pruebas y la función que compara resultados.
+// Este import estático trae dos funciones del archivo pruebas.js, que es del proyecto:
+// test (ejecuta una prueba y anota si pasó o falló) e igual (comprueba que dos valores coinciden).
 import { test, igual } from '/componentes/pruebas.js';
 
 // Cargamos el componente antes de crear etiquetas <erp-insignia>.
+// Si no se cargara primero, el navegador no sabría qué es <erp-insignia> y crearía
+// un elemento vacío y sin comportamiento. await espera a que termine de cargar.
 await import('/componentes/erp-insignia.js');
 
 // Guardamos las zonas de la página donde aparecerán los resultados.
+// salida: donde se escribe si cada prueba pasa o falla.
+// zonaPrueba: un contenedor donde se colocan las insignias que se crean para probar.
 const salida = document.getElementById('salida');
 const zonaPrueba = document.getElementById('zonaPrueba');
 
 // Añadimos un enlace a la página que comprueba el paquete compilado.
+// Crea en memoria un <p> con un <a> dentro (todavía no se ve).
 const parrafoPaquete = document.createElement('p');
 const enlacePaquete = document.createElement('a');
+// A dónde lleva el enlace y qué texto muestra.
 enlacePaquete.href = '/paquete.html';
 enlacePaquete.textContent = 'Abrir la página de prueba del paquete';
+// Mete el enlace dentro del párrafo.
 parrafoPaquete.appendChild(enlacePaquete);
+// before() coloca el párrafo justo antes de "salida", y es entonces cuando aparece en pantalla.
 salida.before(parrafoPaquete);
 
 // Crea una insignia, opcionalmente le asigna un estado y la añade al documento.
 // Insertarla activa el ciclo de vida del componente y permite comprobar su vista.
+// Es una función auxiliar: evita repetir las mismas líneas en cada prueba.
+// "estado" es opcional: si se llama sin argumento, vale undefined.
 function crearInsignia(estado) {
+  // Crea una etiqueta <erp-insignia>, igual que si estuviera escrita en el HTML.
   const insignia = document.createElement('erp-insignia');
 
   // Si se recibió un estado, lo ponemos como atributo antes de insertarla.
+  // La comparación con undefined distingue "no me han pasado nada" de "me han pasado un valor".
   if (estado !== undefined) {
+    // Equivale a escribir <erp-insignia estado="paid"> en el HTML.
     insignia.setAttribute('estado', estado);
   }
 
+  // Al añadirla a la página, el navegador ejecuta el connectedCallback del componente
+  // (el método que se activa cuando el componente "entra" en la página) y se dibuja.
   zonaPrueba.appendChild(insignia);
+  // Devuelve la insignia para que cada prueba pueda usarla.
   return insignia;
 }
 
 // Comprueba el valor predeterminado cuando la etiqueta no tiene atributo estado.
+// test(nombre, función de la prueba, dónde mostrar el resultado).
 test('Sin atributo usa pending', () => {
+  // Se crea sin estado, así que debe usar el valor por defecto.
   const insignia = crearInsignia();
+  // igual(real, esperado): falla si insignia.estado no es 'pending'.
   igual(insignia.estado, 'pending');
 }, salida);
 
 // Comprueba que el componente reconoce un estado válido recibido desde HTML.
 test('Lee el atributo paid', () => {
   const insignia = crearInsignia('paid');
+  // Si se le dice "paid", debe respetarlo y no cambiarlo.
   igual(insignia.estado, 'paid');
 }, salida);
 
 // Comprueba que un valor no admitido se interpreta como pending.
 test('Un estado no válido vuelve a pending', () => {
+  // 'xyz' no es ningún estado que exista.
   const insignia = crearInsignia('xyz');
+  // El componente debe protegerse y usar el valor por defecto en lugar de aceptar basura.
   igual(insignia.estado, 'pending');
 }, salida);
 
 // Comprueba que un clic avanza al siguiente estado y emite el evento cambio.
 test('El clic avanza y emite cambio', () => {
+  // Empieza en pending (valor por defecto).
   const insignia = crearInsignia();
+  // Variable donde apuntaremos el estado que llegue en el evento (vacía al principio).
   let estadoRecibido = '';
 
   // Escuchamos el evento y guardamos el estado que viene en event.detail.
+  // Es el mismo evento personalizado "cambio" del ejercicio anterior, aquí escuchado
+  // solo en esta insignia, no en toda la página.
   insignia.addEventListener('cambio', (evento) => {
     estadoRecibido = evento.detail.estado;
   });
 
   // Simulamos el clic en la etiqueta visible dentro del Shadow DOM.
+  // Shadow DOM es la parte interna y "encapsulada" del componente: desde fuera no se ve con
+  // el selector normal, pero shadowRoot da acceso a ella (funciona porque el componente la deja abierta).
+  // querySelector('span') busca el <span> que muestra el estado y click() simula pulsar sobre él.
   insignia.shadowRoot.querySelector('span').click();
 
+  // Tras un clic, de pending debe pasar a paid, y el evento debe haber llevado ese mismo valor.
   igual(insignia.estado, 'paid');
   igual(estadoRecibido, 'paid');
 }, salida);
 
 // Comprueba el final del ciclo: después de cancelled vuelve a pending.
 test('El ciclo vuelve de cancelled a pending', () => {
+  // Empieza en el último estado del ciclo.
   const insignia = crearInsignia('cancelled');
 
+  // Un clic debería cerrar el círculo y volver al principio.
   insignia.shadowRoot.querySelector('span').click();
 
   igual(insignia.estado, 'pending');
@@ -106,15 +142,22 @@ test('El ciclo vuelve de cancelled a pending', () => {
 // Comprueba que cambiar el estado también actualiza el color mostrado.
 test('Cambiar estado actualiza el color', () => {
   const insignia = crearInsignia();
+  // Se coge el <span> interno antes del cambio.
   const texto = insignia.shadowRoot.querySelector('span');
 
+  // Guarda el estilo (el color) que tiene ahora, estando en pending.
   const estiloPendiente = texto.getAttribute('style');
 
   // El setter cambia el atributo; el componente vuelve a pintar su contenido.
+  // Asignar a insignia.estado ejecuta un "setter" del componente, que cambia el atributo y repinta.
   insignia.estado = 'paid';
 
+  // Se vuelve a buscar el <span> porque al repintar el componente puede haber creado uno nuevo,
+  // y la referencia "texto" de antes podría apuntar a uno viejo.
   const estiloPagado = insignia.shadowRoot.querySelector('span').getAttribute('style');
 
+  // Si el estilo es idéntico, el color no cambió y la prueba falla lanzando un error.
+  // (Aquí no se usa igual porque se comprueba que sean distintos, no iguales.)
   if (estiloPendiente === estiloPagado) {
     throw new Error('El color no cambió.');
   }
@@ -123,19 +166,24 @@ test('Cambiar estado actualiza el color', () => {
 // Comprueba que quitar y volver a insertar la insignia no duplica su listener.
 test('Reconectar no duplica el listener', () => {
   const insignia = crearInsignia();
+  // Contador de cuántas veces se emite el evento "cambio".
   let numeroDeEventos = 0;
 
+  // Cada vez que llegue el evento, suma uno.
   insignia.addEventListener('cambio', () => {
     numeroDeEventos++;
   });
 
   // Esto ejecuta disconnectedCallback y luego connectedCallback.
+  // Quitar el elemento de la página activa disconnectedCallback (el componente debería limpiar
+  // sus listeners) y volver a añadirlo activa connectedCallback (los vuelve a poner).
   zonaPrueba.removeChild(insignia);
   zonaPrueba.appendChild(insignia);
 
+  // Un solo clic.
   insignia.shadowRoot.querySelector('span').click();
 
+  // Debe haberse emitido exactamente 1 evento. Si el componente hubiera añadido el listener
+  // otra vez sin quitar el anterior, un clic dispararía 2 eventos y la prueba fallaría.
   igual(numeroDeEventos, 1);
 }, salida);
-
-  </script>

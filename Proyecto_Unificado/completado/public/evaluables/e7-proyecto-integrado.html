@@ -28,29 +28,48 @@
   <script type="module">
 // Autor/a: Sebastian Alonso Acero Guiop.
 // Carga el componente personalizado que representa el estado de cada pedido.
+// Registra la etiqueta <erp-insignia> en el navegador. await espera a que termine de cargar.
 await import('/componentes/erp-insignia.js');
 // Atajo para localizar elementos por su id.
+// $('lista') equivale a document.getElementById('lista').
 const $ = id => document.getElementById(id);
 // Descarga todos los pedidos desde el servidor.
+// Empieza vacía y se rellena con lo que responda la API.
 let pedidos = [];
 try {
+  // Ayudas.pedir es una función del proyecto que pide datos a la API. await espera la respuesta.
   pedidos = await Ayudas.pedir('/api/orders');
 } catch (error) {
+  // Si falla la descarga, se avisa en pantalla y "pedidos" se queda vacío.
   $('msg').textContent = 'No se pudieron cargar los pedidos: ' + error.message;
 }
 // Mantiene por separado la lista original y la lista que se muestra tras filtrar.
+// "pedidos" nunca se modifica. "visibles" es la que se dibuja y la que cambian los filtros.
+// Al principio las dos apuntan a la misma lista (se muestran todos los pedidos).
 let visibles = pedidos;
+// Índice del pedido que se muestra en la tarjeta de realidad aumentada. Empieza en el primero.
 let i = 0;
 // Guarda el detector de manos y el estado previo de la pinza.
+// manos guardará el detector de MediaPipe cuando esté cargado (de momento no tiene valor).
+// pinzaAntes recuerda si en el fotograma anterior los dedos estaban juntos.
 let manos;
 let pinzaAntes = false;
 // Guarda referencias al video, la zona y la tarjeta de realidad aumentada.
+// video: la cámara. zona: el área sobre la que se superpone la tarjeta.
+// ar: el elemento (la "tarjeta") que se colocará sobre la mano.
 const video = $('video');
 const zona = $('zona');
 const ar = $('ar');
 
 // Pinta cliente, total e insignia para cada pedido visible.
 function pintarLista() {
+  // map convierte cada pedido (p) en un texto HTML con un <p>, y join('') los une en un único texto.
+  // Las comillas invertidas (`) permiten meter valores con ${...}.
+  // Ayudas.escapar neutraliza caracteres peligrosos (como < o ") de los datos del servidor, porque se insertan
+  // con innerHTML (evita XSS). Es especialmente importante en el atributo estado="...", donde unas comillas
+  // podrían romper la etiqueta.
+  // <erp-insignia estado="..."> es el componente que dibuja el estado con su color.
+  // Si no hay pedidos, el texto queda vacío (falso) y el || muestra el aviso.
   $('lista').innerHTML = visibles.map(p =>
     `<p>${Ayudas.escapar(p.customer)} — ${Ayudas.escapar(p.total)} € <erp-insignia estado="${Ayudas.escapar(p.status)}"></erp-insignia></p>`
   ).join('') || '<p>No hay pedidos para mostrar.</p>';
@@ -59,20 +78,36 @@ function pintarLista() {
 pintarLista();
 
 // Configura reconocimiento de voz para filtrar pedidos.
+// Ayudas.voz es una función del proyecto: recibe el botón, una función que se ejecuta con la frase
+// entendida y el elemento donde mostrar mensajes.
 Ayudas.voz($('hablar'), fraseRecibida => {
+  // Pasa a minúsculas y quita espacios para comparar sin problemas de mayúsculas.
   const frase = fraseRecibida.toLowerCase().trim();
+  // Si la frase contiene "pagado" (vale "pagados" también), filtra los pedidos con estado 'paid'.
+  // filter crea una lista nueva y no toca la original.
   if (frase.includes('pagado')) visibles = pedidos.filter(p => p.status === 'paid');
+  // Si dice "todos", se vuelve a la lista original completa.
   else if (frase.includes('todos')) visibles = pedidos;
+  // Si no es ninguna orden válida, avisa y sale (return) sin cambiar nada.
   else { $('msg').textContent = 'Di pagados o todos.'; return; }
+  // Vuelve al primer pedido, para que el índice no apunte a una posición que ya no existe.
   i = 0;
+  // Redibuja la lista con el filtro aplicado.
   pintarLista();
+  // Confirma qué se ha entendido.
   $('msg').textContent = 'Filtro aplicado: ' + frase;
 }, $('msg'));
 
 // Descarga MediaPipe y crea un detector de una mano en modo video.
+// MediaPipe es una biblioteca de Google para detectar manos con IA. Se descarga solo cuando hace falta.
 async function prepararManos() {
+  // import() dinámico desde un CDN. De todo lo que trae, nos quedamos con
+  // HandLandmarker (detecta manos) y FilesetResolver (carga los archivos necesarios).
   const { HandLandmarker, FilesetResolver } = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/+esm');
+  // Carga los archivos WASM (código rápido que ejecuta el modelo dentro del navegador).
   const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
+  // Crea el detector. modelAssetPath: el modelo ya entrenado. runningMode 'VIDEO': analiza fotogramas
+  // seguidos. numHands 1: solo busca una mano (más rápido y menos confusión).
   manos = await HandLandmarker.createFromOptions(vision, {
     baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task' },
     runningMode: 'VIDEO',
@@ -81,43 +116,70 @@ async function prepararManos() {
 }
 
 // Solicita permiso de cámara después de pulsar el botón.
+// Lo inicia el usuario con un clic porque el navegador no deja encender la cámara solo.
 $('iniciar').addEventListener('click', async () => {
   try {
+    // Primero carga el detector (puede tardar unos segundos) y luego enciende la cámara.
     await prepararManos();
+    // getUserMedia pide la cámara (sin audio). El flujo de imagen se conecta al elemento video.
     video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { aspectRatio: 4 / 3 }, audio: false });
+    // Arranca la reproducción y espera a que empiece.
     await video.play();
+    // Desactiva el botón para no iniciar la cámara dos veces.
     $('iniciar').disabled = true;
+    // Instrucciones para el usuario.
     $('msg').textContent = 'Muestra la mano a la cámara. Junta pulgar e índice para pasar.';
+    // Al salir de la página, para la cámara (así se apaga la luz). once:true: se usa una sola vez.
+    // El ?. evita un error si srcObject no existiera.
     window.addEventListener('pagehide', () => video.srcObject?.getTracks().forEach(pista => pista.stop()), { once: true });
+    // Arranca el análisis de imagen.
     bucle();
   } catch (error) {
+    // Si falla algo (permiso denegado, sin cámara, sin internet...), se muestra en pantalla.
     $('msg').textContent = 'No se pudo iniciar la cámara o MediaPipe: ' + error.message;
   }
 });
 
 // Sigue la mano y coloca sobre ella una tarjeta con el pedido actual.
 function bucle() {
+  // Solo analiza si el vídeo ya tiene imagen (readyState >= 2) y es un fotograma distinto al último analizado.
   if (video.readyState >= 2 && video.currentTime !== window.ultimoFotogramaE7) {
+    // Guarda el instante de este fotograma para no analizarlo dos veces.
     window.ultimoFotogramaE7 = video.currentTime;
+    // Pide a MediaPipe que busque la mano en este fotograma. El segundo dato es la hora actual en ms.
     const resultado = manos.detectForVideo(video, performance.now());
+    // Solo continúa si hay una mano detectada y hay pedidos que mostrar.
     if (resultado.landmarks.length > 0 && visibles.length > 0) {
+      // m es la primera mano: 21 puntos con coordenadas x e y entre 0 y 1 (proporción de la imagen).
       const m = resultado.landmarks[0];
+      // Tamaño y posición de la zona en pantalla, para convertir esas coordenadas en píxeles.
       const caja = zona.getBoundingClientRect();
+      // Muestra la tarjeta (hidden = false).
       ar.hidden = false;
+      // La coloca sobre el punto 9 (la base del dedo corazón, que viene a ser el centro de la mano).
+      // En horizontal se usa 1 - x por el efecto espejo. Se multiplica por el ancho o el alto
+      // de la zona para pasar de 0-1 a píxeles.
       ar.style.left = (1 - m[9].x) * caja.width + 'px';
       ar.style.top = m[9].y * caja.height + 'px';
+      // Elige el pedido actual. % visibles.length asegura que el índice nunca se salga de la lista.
       const pedido = visibles[i % visibles.length];
+      // Escribe los datos del pedido en la tarjeta. Se usa textContent (texto plano, sin interpretar HTML).
       ar.textContent = `${pedido.customer} — ${pedido.total} € — ${pedido.status}`;
+      // Pinza: distancia entre la punta del índice (8) y la del pulgar (4), con Math.hypot (Pitágoras).
+      // Si es menor que 0.05 (un 5 % del tamaño de la imagen), los dedos están juntos.
       const pinza = Math.hypot(m[8].x - m[4].x, m[8].y - m[4].y) < 0.05;
+      // Solo actúa en el momento de cerrar la pinza (ahora sí y antes no): pasa al siguiente pedido.
+      // % length hace que, tras el último, vuelva al primero. Así, mantener los dedos juntos no pasa pedidos sin parar.
       if (pinza && !pinzaAntes) i = (i + 1) % visibles.length;
+      // Guarda el estado de la pinza para compararlo en el siguiente fotograma.
       pinzaAntes = pinza;
     } else {
+      // Si no se ve la mano (o no hay pedidos), esconde la tarjeta y reinicia la pinza.
       ar.hidden = true;
       pinzaAntes = false;
     }
   }
+  // Pide al navegador repetir bucle() antes del siguiente repintado (unas 60 veces por segundo).
   requestAnimationFrame(bucle);
 }
   </script>
-</body>
-</html>

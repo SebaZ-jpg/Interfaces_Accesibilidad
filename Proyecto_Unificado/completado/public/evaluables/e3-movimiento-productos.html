@@ -26,34 +26,54 @@
   <!-- Aqui acaba el HTML visible; ahora viene el codigo JavaScript (el "cerebro") -->
 <script src="/js/logica.js"></script><script src="/js/ayudas.js"></script>
   <script type="module">
+
+
 // Autor/a: Sebastian Alonso Acero Guiop.
 // Carga el componente que dibuja el nombre y el stock del producto.
+// import() dinámico carga el archivo JS y, al ejecutarse, registra la etiqueta <erp-tarjeta>
+// (un componente web propio). await espera a que termine de cargar antes de seguir.
 await import('/componentes/erp-tarjeta.js');
 // Atajo para buscar elementos de la pagina.
+// $('tarjeta') equivale a document.getElementById('tarjeta').
 const $ = id => document.getElementById(id);
 // Descarga los productos desde la API y conserva la lista completa.
 let productos = [];
+// Ayudas.pedir es una función del proyecto que pide los datos a la API.
+// Si falla, el catch avisa en pantalla y "productos" se queda vacío.
 try { productos = await Ayudas.pedir('/api/products'); }
 catch (error) { $('msg').textContent = 'No se pudieron cargar productos: ' + error.message; }
 // Indice del producto que se muestra en la tarjeta.
+// Empieza en 0 (el primero). Los gestos lo harán subir o bajar.
 let actual = 0;
 // Fotografia anterior para comparar los cambios entre fotogramas.
+// Al principio es null porque todavía no hay ningún fotograma previo.
 let anterior = null;
 // Tiempo hasta el que ignoramos movimientos para evitar saltos repetidos.
+// Es una marca de tiempo en milisegundos. Sin ella, un solo gesto cambiaría
+// de producto decenas de veces, porque el bucle se ejecuta unas 60 veces por segundo.
 let bloqueo = 0;
 // Canvas donde dibujamos la imagen de la camara a 160 por 120 pixeles.
+// Es pequeño a propósito: menos píxeles que analizar y, por tanto, más rapidez.
 const lienzo = $('lienzo');
 // Contexto 2D para dibujar y leer los pixeles del canvas.
+// willReadFrequently avisa al navegador de que vamos a leer píxeles muchas veces,
+// para que optimice ese caso.
 const ctx = lienzo.getContext('2d', { willReadFrequently: true });
 // Elemento video que recibira el flujo de la camara.
+// Se crea en memoria y no se añade a la página: solo lo usamos como fuente de imágenes.
 const video = document.createElement('video');
+// playsInline: evita que en el móvil se abra a pantalla completa.
 video.playsInline = true;
+// muted: sin sonido, lo que ayuda a que el navegador permita reproducirlo.
 video.muted = true;
 
 // Muestra en erp-tarjeta el producto seleccionado.
 function mostrar() {
+  // Si no hay productos (por ejemplo, falló la descarga), avisamos y salimos.
   if (!productos.length) { $('msg').textContent = 'No hay productos disponibles.'; return; }
+  // Cogemos el producto que toca según el índice actual.
   const p = productos[actual];
+  // titulo y valor son propiedades del componente: al cambiarlas, la tarjeta se actualiza.
   $('tarjeta').titulo = p.name;
   $('tarjeta').valor = p.stock;
 }
@@ -62,58 +82,93 @@ function mostrar() {
 mostrar();
 
 // Solicita permiso de camara cuando el usuario pulsa el boton.
+// Es necesario que sea el usuario quien lo active: los navegadores no dejan encender la cámara solos.
 $('iniciar').addEventListener('click', async () => {
   try {
+    // Pide la cámara (sin audio) y espera a que el usuario conceda el permiso.
+    // Devuelve el "flujo" de vídeo. aspectRatio 4/3 coincide con las proporciones 160x120.
     const flujo = await navigator.mediaDevices.getUserMedia({ video: { aspectRatio: 4 / 3 }, audio: false });
+    // Conecta el flujo de la cámara con el elemento video.
     video.srcObject = flujo;
+    // Arranca la reproducción y espera a que realmente empiece.
     await video.play();
+    // Desactivamos el botón para no iniciar la cámara dos veces.
     $('iniciar').disabled = true;
+    // Mensaje que explica al usuario qué hacer.
     $('msg').textContent = 'Mueve el brazo a izquierda o derecha.';
+    // Al cerrar o abandonar la página, paramos cada pista de la cámara
+    // para que se apague la luz. once:true hace que el aviso se use una sola vez.
     window.addEventListener('pagehide', () => flujo.getTracks().forEach(pista => pista.stop()), { once: true });
+    // Arranca el análisis de imagen.
     bucle();
   } catch (error) {
+    // Si el usuario deniega el permiso o no hay cámara, lo mostramos en pantalla.
     $('msg').textContent = 'No se pudo activar la camara: ' + error.message;
   }
 });
 
 // Analiza un fotograma y solicita el siguiente mientras la pagina este abierta.
 function bucle() {
+  // readyState >= 2: el vídeo ya tiene imagen disponible.
+  // currentTime !== ...: solo analizamos si es un fotograma nuevo (el tiempo del vídeo ha cambiado).
+  // Se guarda en window (variable global); el "E3" del nombre probablemente es por el ejercicio 3.
   if (video.readyState >= 2 && video.currentTime !== window.ultimoFotogramaE3) {
+    // Recordamos este fotograma para no analizarlo dos veces.
     window.ultimoFotogramaE3 = video.currentTime;
     // Guarda el estado del canvas antes de aplicar el efecto espejo.
     ctx.save();
+    // Mueve el origen al borde derecho (160) y da la vuelta al eje horizontal (-1):
+    // la imagen sale como un espejo, de modo que si mueves el brazo a tu derecha, se ve a la derecha.
     ctx.translate(160, 0);
     ctx.scale(-1, 1);
+    // Dibuja el frame actual del vídeo en el canvas, reducido a 160x120.
     ctx.drawImage(video, 0, 0, 160, 120);
+    // Deshace el espejo para que no afecte a futuros dibujos.
     ctx.restore();
     // Lee los cuatro canales RGBA de cada pixel.
+    // Devuelve una lista larga de números: R,G,B,A,R,G,B,A... (160*120*4 valores, de 0 a 255).
     const foto = ctx.getImageData(0, 0, 160, 120).data;
+    // En el primer fotograma no hay con qué comparar, así que se salta esta parte.
     if (anterior) {
+      // Contadores de píxeles que han cambiado en la mitad izquierda y en la derecha.
       let izq = 0;
       let der = 0;
       // Recorre los pixeles avanzando cuatro posiciones (R, G, B y A).
       for (let i = 0; i < foto.length; i += 4) {
+        // El brillo es la suma de rojo, verde y azul (de 0 a 765). No se usa el alfa.
         const brillo = foto[i] + foto[i + 1] + foto[i + 2];
+        // Lo mismo para el mismo píxel en la foto anterior.
         const brilloAntes = anterior[i] + anterior[i + 1] + anterior[i + 2];
+        // Si la diferencia de brillo es mayor que 90, ese píxel "ha cambiado" (hay movimiento).
+        // Math.abs quita el signo: da igual si ha oscurecido o aclarado.
         if (Math.abs(brillo - brilloAntes) > 90) {
+          // i/4 es el número de píxel; % 160 (el ancho) da su columna, de 0 a 159.
           const columna = (i / 4) % 160;
+          // Columnas 0-79 = mitad izquierda; 80-159 = mitad derecha.
           if (columna < 80) izq++;
           else der++;
         }
       }
       // Solo acepta un gesto cuando termina el bloqueo y hay suficientes pixeles cambiados.
+      // performance.now() son los ms actuales. 600 píxeles son un 6 % de una mitad (9600):
+      // así se ignora el ruido pequeño de la cámara.
       if (performance.now() > bloqueo && (izq > 600 || der > 600)) {
+        // Si hay más cambio a la derecha, pasa al siguiente producto. % length vuelve al primero al llegar al final.
         if (der > izq) actual = (actual + 1) % productos.length;
+        // Si no, retrocede. Se suma length antes de % para no obtener un índice negativo al bajar de 0.
         else actual = (actual + productos.length - 1) % productos.length;
+        // Actualiza la tarjeta con el nuevo producto.
         mostrar();
+        // Bloquea nuevos gestos durante 1 segundo (1000 ms).
         bloqueo = performance.now() + 1000;
       }
     }
     // Copia el array para que la siguiente comparacion use una foto independiente.
+    // Es una copia de seguridad: getImageData ya devuelve datos nuevos cada vez.
     anterior = foto.slice();
   }
+  // Pide al navegador que vuelva a ejecutar bucle() antes del siguiente repintado (unas 60 veces/s).
+  // Así se forma un ciclo continuo sin bloquear la página (a diferencia de un while).
   requestAnimationFrame(bucle);
 }
-  </script>
-</body>
-</html>
+

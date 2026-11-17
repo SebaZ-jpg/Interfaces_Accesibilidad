@@ -28,19 +28,33 @@
   <script type="module">
 // Autor/a: Sebastian Alonso Acero Guiop.
 // Atajo para obtener elementos HTML.
+// $('video') equivale a document.getElementById('video').
 const $ = id => document.getElementById(id);
 // Referencias a video, zona de deteccion y punto que sigue al indice.
+// video: muestra la cámara. zona: el área donde están los botones que se pulsan con la mano.
+// punto: un marcador visual (un círculo) que se mueve siguiendo la punta del dedo índice.
 const video = $('video');
 const zona = $('zona');
 const punto = $('punto');
 // Detector MediaPipe y memoria del estado anterior de la pinza.
+// manos guardará el detector cuando esté cargado (de momento está sin valor).
+// pinzaAntes recuerda si en el fotograma anterior los dedos estaban juntos (true) o no (false).
 let manos;
 let pinzaAntes = false;
 
 // Descarga la biblioteca y el modelo de deteccion de manos.
+// MediaPipe es una biblioteca de Google para detectar manos con inteligencia artificial.
+// Se carga desde internet solo cuando hace falta, para no ralentizar la página al abrirla.
 async function prepararManos() {
+  // import() dinámico: descarga el código de MediaPipe desde un CDN (servidor público de bibliotecas).
+  // De todo lo que trae, nos quedamos con dos piezas: HandLandmarker (detecta manos) y FilesetResolver (carga los archivos necesarios).
   const { HandLandmarker, FilesetResolver } = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/+esm');
+  // Carga los archivos WASM (código muy rápido que ejecuta el modelo dentro del navegador).
   const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm');
+  // Crea el detector con sus opciones:
+  // - modelAssetPath: dirección del archivo del modelo ya entrenado.
+  // - runningMode 'VIDEO': está pensado para analizar fotogramas de vídeo seguidos.
+  // - numHands 1: solo busca una mano, lo que es más rápido y evita confusiones.
   manos = await HandLandmarker.createFromOptions(vision, {
     baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task' },
     runningMode: 'VIDEO',
@@ -49,63 +63,105 @@ async function prepararManos() {
 }
 
 // Pide el permiso de camara y comienza el bucle de deteccion.
+// Debe iniciarlo el usuario con un clic: el navegador no deja encender la cámara solo.
 $('iniciar').addEventListener('click', async () => {
   try {
+    // Primero carga el detector (puede tardar unos segundos) y después enciende la cámara.
     await prepararManos();
+    // getUserMedia pide la cámara (sin audio). El flujo de imagen se conecta al elemento video.
     video.srcObject = await navigator.mediaDevices.getUserMedia({ video: { aspectRatio: 4 / 3 }, audio: false });
+    // Arranca la reproducción y espera a que empiece.
     await video.play();
+    // Desactiva el botón para no iniciar la cámara dos veces.
     $('iniciar').disabled = true;
+    // Instrucciones para el usuario.
     $('msg').textContent = 'Mueve el indice y junta pulgar e indice para pulsar.';
+    // Al salir de la página, para la cámara (así se apaga la luz). once:true: el aviso se usa una sola vez.
+    // El ?. evita un error si srcObject no existiera.
     window.addEventListener('pagehide', () => video.srcObject?.getTracks().forEach(pista => pista.stop()), { once: true });
+    // Arranca el análisis de imagen.
     bucle();
   } catch (error) {
+    // Si falla algo (permiso denegado, sin cámara, sin internet para descargar el modelo...), se muestra en pantalla.
     $('msg').textContent = 'No se pudo iniciar la camara o MediaPipe: ' + error.message;
   }
 });
 
 // Envia el nuevo estado del pedido 1 al servidor.
+// "estado" es un texto, por ejemplo el que lleve cada botón en su atributo data-e.
 async function actualizarPedido(estado) {
   try {
+    // Ayudas.escribir es una función del proyecto. Por cómo se usa, manda una petición PUT
+    // (PUT = "modificar algo que ya existe") a /api/orders?id=1 con el cuerpo { status: estado }.
     await Ayudas.escribir('/api/orders?id=1', 'PUT', { status: estado });
     $('msg').textContent = 'Pedido 1 actualizado: ' + estado;
   } catch (error) {
+    // Si el servidor falla, lo mostramos en vez de dejar al usuario sin saber qué pasó.
     $('msg').textContent = 'No se pudo actualizar el pedido: ' + error.message;
   }
 }
 
 // Conecta cada boton con el estado que contiene su atributo data-e.
+// querySelectorAll('[data-e]') busca todos los elementos que tengan el atributo data-e en el HTML.
+// boton.dataset.e lee su valor (por ejemplo, data-e="enviado" -> "enviado").
+// Así no hace falta escribir un addEventListener por cada botón.
 document.querySelectorAll('[data-e]').forEach(boton => {
   boton.addEventListener('click', () => actualizarPedido(boton.dataset.e));
 });
 
 // Detecta la mano en cada fotograma nuevo.
 function bucle() {
+  // Solo analiza si el vídeo ya tiene imagen (readyState >= 2) y es un fotograma distinto al último analizado.
   if (video.readyState >= 2 && video.currentTime !== window.ultimoFotogramaE4) {
+    // Guarda el instante de este fotograma para no analizarlo dos veces.
     window.ultimoFotogramaE4 = video.currentTime;
+    // Pide a MediaPipe que busque la mano en este fotograma. El segundo dato es la hora actual en ms,
+    // que el detector usa para seguir la mano de un fotograma al siguiente.
     const r = manos.detectForVideo(video, performance.now());
+    // landmarks es una lista con una entrada por mano detectada. Si hay alguna...
     if (r.landmarks.length > 0) {
+      // m es la primera mano: 21 puntos (landmarks) con coordenadas x e y entre 0 y 1
+      // (0 = borde izquierdo/superior, 1 = borde derecho/inferior de la imagen).
+      // El punto 8 es la punta del índice y el 4 es la punta del pulgar.
       const m = r.landmarks[0];
+      // Tamaño y posición de la zona en pantalla, para convertir las coordenadas (0-1) en píxeles.
       const caja = zona.getBoundingClientRect();
+      // Posición horizontal: se hace 1 - x para el efecto espejo (si mueves la mano a tu derecha, el punto va a la derecha).
+      // Se multiplica por el ancho de la zona para pasar de 0-1 a píxeles.
       const x = (1 - m[8].x) * caja.width;
+      // Posición vertical: no se espeja, solo se pasa a píxeles.
       const y = m[8].y * caja.height;
+      // Muestra el punto (hidden = false) y lo coloca en esa posición.
       punto.hidden = false;
       punto.style.left = x + 'px';
       punto.style.top = y + 'px';
+      // Distancia entre la punta del índice y la del pulgar (teorema de Pitágoras con Math.hypot).
       const distancia = Math.hypot(m[8].x - m[4].x, m[8].y - m[4].y);
+      // Si la distancia es menor que 0.05 (un 5 % del tamaño de la imagen), consideramos que los dedos están juntos: es una "pinza".
       const pinza = distancia < 0.05;
+      // toggle añade la clase CSS "pinza" si pinza es true y la quita si es false.
+      // Se usa para que el punto cambie de aspecto cuando estás pulsando.
       punto.classList.toggle('pinza', pinza);
+      // Solo actúa en el momento de cerrar la pinza: ahora hay pinza y antes no la había.
+      // Así, mantener los dedos juntos no repite la pulsación en cada fotograma.
       if (pinza && !pinzaAntes) {
+        // Busca qué elemento de la página hay justo bajo el punto.
+        // elementFromPoint usa coordenadas de la ventana, por eso se suma la posición de la zona (caja.left y caja.top).
         const elemento = document.elementFromPoint(caja.left + x, caja.top + y);
+        // Pulsa solo si hay un elemento, es un botón y está dentro de la zona.
+        // click() simula un clic real, que activa el addEventListener del botón.
         if (elemento && elemento.tagName === 'BUTTON' && zona.contains(elemento)) elemento.click();
       }
+      // Guarda el estado de la pinza para compararlo en el siguiente fotograma.
       pinzaAntes = pinza;
     } else {
+      // Si no se ve ninguna mano, esconde el punto y reinicia la pinza.
+      // Así, al volver a aparecer la mano, no cuenta como pinza ya hecha.
       punto.hidden = true;
       pinzaAntes = false;
     }
   }
+  // Pide al navegador repetir bucle() antes del siguiente repintado (unas 60 veces por segundo).
   requestAnimationFrame(bucle);
 }
-  </script>
-</body>
-</html>
+

@@ -26,54 +26,71 @@
   <!-- Aqui acaba el HTML visible; ahora viene el codigo JavaScript (el "cerebro") -->
 <script src="/js/logica.js"></script><script src="/js/ayudas.js"></script>
   <script type="module">
+
 // Autor/a: Sebastian Alonso Acero Guiop.
-// Atajo para localizar elementos de la pagina por su identificador.
+// Atajo: $('name') equivale a document.getElementById('name'), para escribir menos.
 const $ = id => document.getElementById(id);
 
 // Guarda los datos del formulario en la API del proyecto.
+// async: la función espera (await) a que el servidor responda antes de seguir.
 async function guardarCliente() {
   // Construye el objeto con los valores actuales de los tres campos.
+  // .value es lo que hay escrito y .trim() quita los espacios del principio y del final.
   const datos = { name: $('name').value.trim(), city: $('city').value.trim(), email: $('email').value.trim() };
   // Comprueba que los campos obligatorios tienen contenido.
+  // "!" significa "no": un texto vacío cuenta como falso. Con return salimos sin enviar nada.
   if (!datos.name || !datos.city || !datos.email) { $('msg').textContent = 'Completa nombre, ciudad y correo.'; return; }
   // Utiliza la validacion nativa del campo de tipo email.
+  // El propio navegador devuelve true/false según si el texto parece un email (necesita type="email").
   if (!$('email').checkValidity()) { $('msg').textContent = 'El correo no tiene un formato valido.'; return; }
   try {
     // Envia el objeto como JSON mediante una peticion POST.
+    // POST = "crea uno nuevo"; el header avisa de que el cuerpo va en JSON;
+    // JSON.stringify convierte el objeto de JavaScript en texto JSON.
     const respuesta = await fetch('/api/customers', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(datos) });
     // Si el servidor responde con error HTTP, lo tratamos como una excepcion.
+    // respuesta.ok es false con códigos como 400 o 500; throw salta directamente al catch.
     if (!respuesta.ok) throw new Error('Error HTTP ' + respuesta.status);
     // Informa de que el servidor ha guardado el cliente.
     $('msg').textContent = 'Guardado';
   } catch (error) {
     // Muestra el problema sin borrar lo que el usuario habia escrito.
+    // Así puede corregir y volver a intentarlo. Aquí caen errores de red y el throw de arriba.
     $('msg').textContent = 'No se pudo guardar: ' + error.message;
   }
 }
 
 // Conecta el boton Hablar al reconocimiento de voz proporcionado por el proyecto.
+// Ayudas.voz no es del navegador, es una función del proyecto: recibe el botón,
+// una función que se ejecuta cuando hay una frase, y el elemento donde mostrar mensajes.
 window.Ayudas.voz($('hablar'), async transcripcion => {
   // Convierte la frase a minusculas y elimina espacios externos.
+  // Se pasa a minúsculas para comparar sin preocuparse de cómo la escriba el navegador.
   const frase = transcripcion.toLowerCase().trim();
   // Muestra la frase que ha entendido el navegador.
   $('msg').textContent = 'Has dicho: ' + frase;
   // Si empieza por nombre, guarda el texto que queda despues de los siete caracteres.
+  // startsWith comprueba el comienzo; slice(7) corta "nombre " (6 letras + 1 espacio).
   if (frase.startsWith('nombre ')) $('name').value = frase.slice(7).trim();
   // Si empieza por ciudad, guarda el texto que queda despues de los siete caracteres.
+  // Igual que antes: "ciudad " también ocupa 7 caracteres.
   else if (frase.startsWith('ciudad ')) $('city').value = frase.slice(7).trim();
   // Si empieza por email, procesa las palabras que representan simbolos.
   else if (frase.startsWith('email ')) {
     // Convierte arroba y punto, y elimina espacios que queden en la direccion.
+    // slice(6) quita "email ". Cada replace cambia una palabra por su símbolo
+    // (la g final significa "todas las veces que aparezca"). El último, \s+, borra
+    // todos los espacios, y por eso va al final: primero se sustituye y luego se limpia.
     $('email').value = frase.slice(6).replace(/ arroba /g, '@').replace(/ punto /g, '.').replace(/\s+/g, '');
   }
   // Si la frase completa es guardar, envia los datos al servidor.
+  // === exige que la frase sea exactamente "guardar"; await espera a que termine el guardado.
   else if (frase === 'guardar') await guardarCliente();
   // Si no coincide con ningun comando, explica las opciones.
   else $('msg').textContent = 'Comando no reconocido. Di nombre, ciudad, email o guardar.';
 }, $('msg'));
 
 // Permite guardar el formulario tambien haciendo clic con el raton.
+// Pasamos guardarCliente sin paréntesis: es la función en sí, que se ejecutará al hacer clic.
 $('guardar').addEventListener('click', guardarCliente);
-  </script>
-</body>
-</html>
+
